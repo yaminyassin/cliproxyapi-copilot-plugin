@@ -12,7 +12,6 @@ import (
 )
 
 var pluginService = provider.New(hostTransport{})
-var pluginVersion = "0.3.3"
 
 type lifecycleRequest struct {
 	ConfigYAML []byte `json:"config_yaml"`
@@ -163,7 +162,7 @@ func pluginRegistration() registration {
 		SchemaVersion: pluginabi.SchemaVersion,
 		Metadata: pluginapi.Metadata{
 			Name:             "GitHub Copilot subscription provider",
-			Version:          pluginVersion,
+			Version:          provider.PluginVersion,
 			Author:           "self-owned",
 			GitHubRepository: "https://github.com/arthur-sommer-etc/cliproxyapi-copilot-plugin",
 			ConfigFields: []pluginapi.ConfigField{
@@ -183,8 +182,8 @@ func pluginRegistration() registration {
 			AuthProvider:          true,
 			Executor:              true,
 			ExecutorModelScope:    pluginapi.ExecutorModelScopeOAuth,
-			ExecutorInputFormats:  []string{"openai-response", "claude"},
-			ExecutorOutputFormats: []string{"openai-response", "claude"},
+			ExecutorInputFormats:  []string{"chat-completions", "openai-response", "claude"},
+			ExecutorOutputFormats: []string{"chat-completions", "openai-response", "claude"},
 		},
 	}
 }

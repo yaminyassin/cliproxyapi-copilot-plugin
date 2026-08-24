@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v7/sdk/translator"
 	"github.com/router-for-me/CLIProxyAPI/v7/sdk/translator/builtin"
@@ -17,6 +18,10 @@ const (
 )
 
 var registry = builtin.Registry()
+
+// The pinned SDK contains request converters with package-level scratch state.
+// Serialize registry calls until the upstream converters become concurrency-safe.
+var registryCallMu sync.Mutex
 
 func ClaudeToResponses(model string, body []byte, stream bool) ([]byte, error) {
 	return request(sdktranslator.FormatClaude, sdktranslator.FormatOpenAIResponse, model, body, stream)
@@ -91,6 +96,13 @@ func request(from, to sdktranslator.Format, model string, body []byte, stream bo
 	if !json.Valid(body) {
 		return nil, fmt.Errorf("request body is not valid JSON")
 	}
+	if from == sdktranslator.FormatOpenAI && to == sdktranslator.FormatOpenAIResponse {
+		claude := registryTranslateRequest(from, sdktranslator.FormatClaude, model, body, stream)
+		if len(claude) == 0 || !json.Valid(claude) {
+			return nil, fmt.Errorf("official request translation from %s to %s failed", from, sdktranslator.FormatClaude)
+		}
+		return claudeRequestToResponses(model, claude, stream)
+	}
 	if from == sdktranslator.FormatClaude && to == sdktranslator.FormatOpenAIResponse {
 		return claudeRequestToResponses(model, body, stream)
 	}
@@ -99,14 +111,14 @@ func request(from, to sdktranslator.Format, model string, body []byte, stream bo
 		if !ok {
 			return nil, fmt.Errorf("official translator has no request route from %s to %s", from, to)
 		}
-		first := registry.TranslateRequest(from, intermediate, model, body, stream)
-		out := registry.TranslateRequest(intermediate, to, model, first, stream)
+		first := registryTranslateRequest(from, intermediate, model, body, stream)
+		out := registryTranslateRequest(intermediate, to, model, first, stream)
 		if len(out) == 0 || !json.Valid(out) {
 			return nil, fmt.Errorf("official two-hop request translation from %s to %s failed", from, to)
 		}
 		return out, nil
 	}
-	out := registry.TranslateRequest(from, to, model, body, stream)
+	out := registryTranslateRequest(from, to, model, body, stream)
 	if len(out) == 0 || !json.Valid(out) {
 		return nil, fmt.Errorf("official request translation from %s to %s failed", from, to)
 	}
@@ -117,6 +129,9 @@ func response(ctx context.Context, from, to sdktranslator.Format, model string, 
 	if !json.Valid(body) {
 		return nil, fmt.Errorf("response body is not valid JSON")
 	}
+	if from == sdktranslator.FormatOpenAIResponse && to == sdktranslator.FormatOpenAI {
+		return responsesResponseToOpenAI(model, body)
+	}
 	if from == sdktranslator.FormatOpenAIResponse && to == sdktranslator.FormatClaude {
 		return responsesResponseToClaude(model, body)
 	}
@@ -125,15 +140,15 @@ func response(ctx context.Context, from, to sdktranslator.Format, model string, 
 		if !ok {
 			return nil, fmt.Errorf("official translator has no response route from %s to %s", from, to)
 		}
-		intermediateRequest := registry.TranslateRequest(to, intermediate, model, original, false)
-		first := registry.TranslateNonStream(ctx, from, intermediate, model, intermediateRequest, translated, body, nil)
-		out := registry.TranslateNonStream(ctx, intermediate, to, model, original, intermediateRequest, first, nil)
+		intermediateRequest := registryTranslateRequest(to, intermediate, model, original, false)
+		first := registryTranslateNonStream(ctx, from, intermediate, model, intermediateRequest, translated, body, nil)
+		out := registryTranslateNonStream(ctx, intermediate, to, model, original, intermediateRequest, first, nil)
 		if len(out) == 0 || !json.Valid(out) {
 			return nil, fmt.Errorf("official two-hop response translation from %s to %s failed", from, to)
 		}
 		return out, nil
 	}
-	out := registry.TranslateNonStream(ctx, from, to, model, original, translated, body, nil)
+	out := registryTranslateNonStream(ctx, from, to, model, original, translated, body, nil)
 	if len(out) == 0 || !json.Valid(out) {
 		return nil, fmt.Errorf("official response translation from %s to %s failed", from, to)
 	}
@@ -141,6 +156,9 @@ func response(ctx context.Context, from, to sdktranslator.Format, model string, 
 }
 
 func stream(ctx context.Context, from, to sdktranslator.Format, model string, original, translated, frame []byte, state *any) ([][]byte, error) {
+	if from == sdktranslator.FormatOpenAIResponse && to == sdktranslator.FormatOpenAI {
+		return responsesStreamToOpenAI(ctx, model, original, frame, state)
+	}
 	if from == sdktranslator.FormatOpenAIResponse && to == sdktranslator.FormatClaude {
 		return responsesStreamToClaude(model, frame, state)
 	}
@@ -157,15 +175,15 @@ func stream(ctx context.Context, from, to sdktranslator.Format, model string, or
 			hopState = &twoHopStreamState{}
 			*state = hopState
 		}
-		intermediateRequest := registry.TranslateRequest(to, intermediate, model, original, true)
-		first := registry.TranslateStream(ctx, from, intermediate, model, intermediateRequest, translated, frame, &hopState.First)
+		intermediateRequest := registryTranslateRequest(to, intermediate, model, original, true)
+		first := registryTranslateStream(ctx, from, intermediate, model, intermediateRequest, translated, frame, &hopState.First)
 		var out [][]byte
 		for _, firstFrame := range first {
-			out = append(out, registry.TranslateStream(ctx, intermediate, to, model, original, intermediateRequest, firstFrame, &hopState.Second)...)
+			out = append(out, registryTranslateStream(ctx, intermediate, to, model, original, intermediateRequest, firstFrame, &hopState.Second)...)
 		}
 		return out, nil
 	}
-	out := registry.TranslateStream(ctx, from, to, model, original, translated, frame, state)
+	out := registryTranslateStream(ctx, from, to, model, original, translated, frame, state)
 	if len(out) == 1 && bytes.Equal(out[0], frame) && from != to {
 		return nil, fmt.Errorf("official stream translation from %s to %s fell back unchanged", from, to)
 	}
@@ -175,6 +193,24 @@ func stream(ctx context.Context, from, to sdktranslator.Format, model string, or
 type twoHopStreamState struct {
 	First  any
 	Second any
+}
+
+func registryTranslateRequest(from, to sdktranslator.Format, model string, body []byte, stream bool) []byte {
+	registryCallMu.Lock()
+	defer registryCallMu.Unlock()
+	return registry.TranslateRequest(from, to, model, body, stream)
+}
+
+func registryTranslateNonStream(ctx context.Context, from, to sdktranslator.Format, model string, original, translated, body []byte, state *any) []byte {
+	registryCallMu.Lock()
+	defer registryCallMu.Unlock()
+	return registry.TranslateNonStream(ctx, from, to, model, original, translated, body, state)
+}
+
+func registryTranslateStream(ctx context.Context, from, to sdktranslator.Format, model string, original, translated, frame []byte, state *any) [][]byte {
+	registryCallMu.Lock()
+	defer registryCallMu.Unlock()
+	return registry.TranslateStream(ctx, from, to, model, original, translated, frame, state)
 }
 
 func intermediateFormat(from, to sdktranslator.Format) (sdktranslator.Format, bool) {

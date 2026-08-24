@@ -1,9 +1,9 @@
 GO_IMAGE ?= golang:1.26-bookworm
-VERSION ?= 0.3.3
+VERSION ?= 0.3.5
 PLUGIN_DIR := build/plugins/linux/amd64
 PLUGIN_SO := $(PLUGIN_DIR)/cliproxyapi-copilot.so
 CACHE_DIR := .cache
-VERSION_LDFLAG := -X main.pluginVersion=$(VERSION)
+VERSION_LDFLAG := -X github.com/arthur-sommer-etc/cliproxyapi-copilot-plugin/internal/provider.PluginVersion=$(VERSION)
 
 .PHONY: test build build-local package clean
 

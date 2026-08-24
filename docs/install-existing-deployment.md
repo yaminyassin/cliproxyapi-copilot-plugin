@@ -179,4 +179,5 @@ plugins:
 To remove it completely, stop CLIProxyAPI, delete the installed library, remove
 only the `cliproxyapi-copilot` configuration entry, and restart. Delete the
 plugin's Copilot auth entry through the normal management UI only if the stored
-credential should also be revoked or removed.
+credential should also be removed from CLIProxyAPI. Revoke the GitHub grant
+separately in GitHub's application settings when revocation is required.

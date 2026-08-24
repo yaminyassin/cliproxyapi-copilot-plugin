@@ -245,6 +245,8 @@ func normalizeRequestFormat(value string) string {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "", "responses", "openai-response", "openai-responses":
 		return "openai-response"
+	case "openai", "chat-completions", "openai-chat-completions":
+		return "openai"
 	case "claude", "anthropic":
 		return "claude"
 	default:

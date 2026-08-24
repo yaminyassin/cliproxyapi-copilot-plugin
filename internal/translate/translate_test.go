@@ -103,6 +103,104 @@ func TestChatNonStreamResponseToResponses(t *testing.T) {
 	}
 }
 
+func TestOpenAIChatRequestToResponses(t *testing.T) {
+	t.Parallel()
+
+	original := []byte(`{
+		"model":"ignored",
+		"messages":[{"role":"user","content":"ping"}],
+		"max_tokens":64
+	}`)
+	claudeRequest, err := RequestForEndpointFrom("openai", "gpt-5.6-luna", original, false, EndpointMessages)
+	if err != nil {
+		t.Fatalf("translate request through Claude bridge: %v", err)
+	}
+	if !gjson.ValidBytes(claudeRequest) {
+		t.Fatalf("Claude bridge request is invalid JSON: %s", claudeRequest)
+	}
+	out, err := RequestForEndpointFrom("openai", "gpt-5.6-luna", original, false, EndpointResponses)
+	if err != nil {
+		t.Fatalf("translate request: %v", err)
+	}
+	data := gjson.ParseBytes(out)
+	if got := data.Get("model").String(); got != "gpt-5.6-luna" {
+		t.Fatalf("model = %q; request=%s", got, out)
+	}
+	if got := data.Get("max_output_tokens").Int(); got != 64 {
+		t.Fatalf("max_output_tokens = %d; request=%s", got, out)
+	}
+	if !strings.Contains(string(out), "ping") {
+		t.Fatalf("translated request omits user text: %s", out)
+	}
+}
+
+func TestResponsesNonStreamResponseToOpenAIChat(t *testing.T) {
+	t.Parallel()
+
+	original := []byte(`{"model":"gpt-5.6-luna","messages":[{"role":"user","content":"ping"}]}`)
+	translated, err := RequestForEndpointFrom("openai", "gpt-5.6-luna", original, false, EndpointResponses)
+	if err != nil {
+		t.Fatalf("translate request: %v", err)
+	}
+	upstream := []byte(`{
+		"id":"resp_1","object":"response","created_at":1,"status":"completed","model":"gpt-5.6-luna",
+		"output":[
+			{"id":"reason_1","type":"reasoning","summary":[{"type":"summary_text","text":"brief thought"}]},
+			{"id":"msg_1","type":"message","status":"completed","role":"assistant","content":[{"type":"output_text","text":"pong"}]}
+		],
+		"usage":{"input_tokens":2,"output_tokens":1,"total_tokens":3,"input_tokens_details":{"cached_tokens":1},"output_tokens_details":{"reasoning_tokens":1}}
+	}`)
+	out, err := ResponseFromEndpoint(context.Background(), EndpointResponses, "openai", "gpt-5.6-luna", original, translated, upstream)
+	if err != nil {
+		t.Fatalf("translate response: %v", err)
+	}
+	data := gjson.ParseBytes(out)
+	if got := data.Get("object").String(); got != "chat.completion" {
+		t.Fatalf("object = %q; response=%s", got, out)
+	}
+	if got := data.Get("choices.0.message.content").String(); got != "pong" {
+		t.Fatalf("content = %q; response=%s", got, out)
+	}
+	if got := data.Get("choices.0.message.reasoning_content").String(); got != "brief thought" {
+		t.Fatalf("reasoning_content = %q; response=%s", got, out)
+	}
+	if got := data.Get("usage.total_tokens").Int(); got != 3 {
+		t.Fatalf("total_tokens = %d; response=%s", got, out)
+	}
+	if got := data.Get("usage.prompt_tokens_details.cached_tokens").Int(); got != 1 {
+		t.Fatalf("cached_tokens = %d; response=%s", got, out)
+	}
+}
+
+func TestResponsesFunctionCallToOpenAIChat(t *testing.T) {
+	t.Parallel()
+
+	original := []byte(`{"model":"gpt-5.6-luna","messages":[{"role":"user","content":"look up x"}]}`)
+	translated, err := RequestForEndpointFrom("openai", "gpt-5.6-luna", original, false, EndpointResponses)
+	if err != nil {
+		t.Fatalf("translate request: %v", err)
+	}
+	upstream := []byte(`{
+		"id":"resp_tools","status":"completed","model":"gpt-5.6-luna",
+		"output":[{"id":"fc_1","type":"function_call","call_id":"call_1","name":"lookup","arguments":"{\"q\":\"x\"}"}],
+		"usage":{"input_tokens":4,"output_tokens":2,"total_tokens":6}
+	}`)
+	out, err := ResponseFromEndpoint(context.Background(), EndpointResponses, "openai", "gpt-5.6-luna", original, translated, upstream)
+	if err != nil {
+		t.Fatalf("translate response: %v", err)
+	}
+	data := gjson.ParseBytes(out)
+	if got := data.Get("choices.0.finish_reason").String(); got != "tool_calls" {
+		t.Fatalf("finish_reason = %q; response=%s", got, out)
+	}
+	if got := data.Get("choices.0.message.tool_calls.0.id").String(); got != "call_1" {
+		t.Fatalf("tool call id = %q; response=%s", got, out)
+	}
+	if got := data.Get("choices.0.message.tool_calls.0.function.name").String(); got != "lookup" {
+		t.Fatalf("tool name = %q; response=%s", got, out)
+	}
+}
+
 func TestResponsesNonStreamResponseToClaude(t *testing.T) {
 	t.Parallel()
 
@@ -235,5 +333,123 @@ data: {"type":"response.completed","response":{"id":"resp_1","status":"completed
 		if !strings.Contains(text, needle) {
 			t.Fatalf("Claude SSE omits %q:\n%s", needle, text)
 		}
+	}
+}
+
+func TestResponsesSSEToOpenAIChat(t *testing.T) {
+	t.Parallel()
+
+	original := []byte(`{"model":"gpt-5.6-luna","messages":[{"role":"user","content":"ping"}],"stream":true}`)
+	translated, err := RequestForEndpointFrom("openai", "gpt-5.6-luna", original, true, EndpointResponses)
+	if err != nil {
+		t.Fatalf("translate request: %v", err)
+	}
+	chunks := [][]byte{
+		[]byte(`event: response.created
+data: {"type":"response.created","response":{"id":"resp_1","status":"in_progress","model":"gpt-5.6-luna","output":[],"usage":{"input_tokens":2,"output_tokens":0}}}
+
+`),
+		[]byte(`event: response.output_text.delta
+data: {"type":"response.output_text.delta","item_id":"msg_1","output_index":0,"content_index":0,"delta":"po"}
+
+`),
+		[]byte(`event: response.output_text.delta
+data: {"type":"response.output_text.delta","item_id":"msg_1","output_index":0,"content_index":0,"delta":"ng"}
+
+`),
+		[]byte(`event: response.completed
+data: {"type":"response.completed","response":{"id":"resp_1","status":"completed","model":"gpt-5.6-luna","output":[{"id":"msg_1","type":"message","role":"assistant","content":[{"type":"output_text","text":"pong"}]}],"usage":{"input_tokens":2,"output_tokens":1,"total_tokens":3}}}
+
+`),
+	}
+	var state any
+	var output strings.Builder
+	for _, chunk := range chunks {
+		frames, errTranslate := StreamFromEndpoint(context.Background(), EndpointResponses, "openai", "gpt-5.6-luna", original, translated, chunk, &state)
+		if errTranslate != nil {
+			t.Fatalf("translate SSE: %v", errTranslate)
+		}
+		for _, frame := range frames {
+			output.Write(frame)
+		}
+	}
+	text := output.String()
+	for _, needle := range []string{
+		`"object":"chat.completion.chunk"`,
+		`"content":"po"`,
+		`"content":"ng"`,
+		`"finish_reason":"stop"`,
+		`"total_tokens":3`,
+		"[DONE]",
+	} {
+		if !strings.Contains(text, needle) {
+			t.Fatalf("translated SSE omits %q:\n%s", needle, text)
+		}
+	}
+}
+
+func TestResponsesToolSSEToOpenAIChat(t *testing.T) {
+	t.Parallel()
+
+	original := []byte(`{"model":"gpt-5.6-luna","messages":[{"role":"user","content":"look up x"}],"stream":true}`)
+	translated, err := RequestForEndpointFrom("openai", "gpt-5.6-luna", original, true, EndpointResponses)
+	if err != nil {
+		t.Fatalf("translate request: %v", err)
+	}
+	chunks := [][]byte{
+		[]byte(`event: response.created
+data: {"type":"response.created","response":{"id":"resp_tools","status":"in_progress","model":"gpt-5.6-luna","output":[]}}
+
+`),
+		[]byte(`event: response.output_item.added
+data: {"type":"response.output_item.added","output_index":0,"item":{"id":"fc_1","type":"function_call","call_id":"call_1","name":"lookup","arguments":""}}
+
+`),
+		[]byte(`event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","output_index":0,"item_id":"fc_1","delta":"{\"q\":"}
+
+`),
+		[]byte(`event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","output_index":0,"item_id":"fc_1","delta":"\"x\"}"}
+
+`),
+		[]byte(`event: response.output_item.done
+data: {"type":"response.output_item.done","output_index":0,"item":{"id":"fc_1","type":"function_call","call_id":"call_1","name":"lookup","arguments":"{\"q\":\"x\"}"}}
+
+`),
+		[]byte(`event: response.completed
+data: {"type":"response.completed","response":{"id":"resp_tools","status":"completed","model":"gpt-5.6-luna","output":[{"id":"fc_1","type":"function_call","call_id":"call_1","name":"lookup","arguments":"{\"q\":\"x\"}"}],"usage":{"input_tokens":4,"output_tokens":2,"total_tokens":6}}}
+
+`),
+	}
+	var state any
+	var output strings.Builder
+	for _, chunk := range chunks {
+		frames, errTranslate := StreamFromEndpoint(context.Background(), EndpointResponses, "openai", "gpt-5.6-luna", original, translated, chunk, &state)
+		if errTranslate != nil {
+			t.Fatalf("translate SSE: %v", errTranslate)
+		}
+		for _, frame := range frames {
+			output.Write(frame)
+		}
+	}
+	text := output.String()
+	for _, needle := range []string{
+		`"id":"call_1"`,
+		`"name":"lookup"`,
+		`"arguments":"{\"q\":"`,
+		`"arguments":"\"x\"}"`,
+		`"finish_reason":"tool_calls"`,
+		"[DONE]",
+	} {
+		if !strings.Contains(text, needle) {
+			t.Fatalf("translated tool SSE omits %q:\n%s", needle, text)
+		}
+	}
+	if got := strings.Count(text, `"id":"call_1"`); got != 1 {
+		t.Fatalf("tool call start count = %d, want 1:\n%s", got, text)
+	}
+	if strings.Contains(text, "data: ") {
+		t.Fatalf("chat stream payload contains an SSE envelope that CPA would wrap again:\n%s", text)
 	}
 }

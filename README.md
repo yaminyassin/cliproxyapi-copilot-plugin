@@ -43,14 +43,14 @@ The provider packages are intentionally separated:
 - `internal/provider`: OAuth, storage, Copilot token exchange/cache, models,
   endpoint selection, and execution
 - `internal/translate`: official translator SDK integration plus the missing
-  Claude Messages ↔ OpenAI Responses bridge
+  Claude Messages and Chat Completions ↔ OpenAI Responses bridges
 - `internal/transport`: host HTTP/stream callback abstraction
 - `internal/sse`: chunk-safe SSE framing
 - `internal/redact`: bounded, token-redacting error text
 
-Claude input is accepted directly. Chat- or Messages-only Copilot models use
-official built-in translators. Responses-only models use the custom Claude
-bridge; `gpt-5.6-sol` and `gpt-5.6-terra` are always routed to `/responses`.
+Claude Messages, OpenAI Chat Completions, and OpenAI Responses input are
+accepted directly. Responses-only models use the custom Claude and Chat
+bridges; `gpt-5.6-sol` and `gpt-5.6-terra` are always routed to `/responses`.
 Claude token-count requests are estimated locally with the same O200k tokenizer
 approach used by CLIProxyAPI for translated Claude requests.
 Copilot model prefixes can be excluded from discovery to avoid collisions with
@@ -74,6 +74,13 @@ The GitHub access/refresh material is returned through CLIProxyAPI's
 volume. The short-lived token obtained from
 `https://api.github.com/copilot_internal/v2/token` is cached only in process
 memory, refreshed before expiry, and never deliberately logged.
+
+CLIProxyAPI's management `/api-call` endpoint replaces the literal `$TOKEN$`
+from `metadata.access_token`. The plugin therefore mirrors the GitHub access
+token into that metadata field so the quota dashboard can call GitHub without
+receiving the token in the browser. CLIProxyAPI may persist the mirror beside
+the plugin-owned `github_access_token` field in the same protected auth file;
+both values share the auth directory's permissions and lifecycle.
 
 Copilot rejects unrecognized `Copilot-Integration-Id` values. Model discovery
 and inference therefore use the recognized VS Code Copilot integration headers
@@ -240,6 +247,15 @@ curl http://127.0.0.1:8317/v1/responses \
   -H "Authorization: Bearer $API_KEY" \
   -H 'Content-Type: application/json' \
   -d '{"model":"gpt-5.6-sol","input":"Reply with ok."}'
+```
+
+Chat Completions request:
+
+```sh
+curl http://127.0.0.1:8317/v1/chat/completions \
+  -H "Authorization: Bearer $API_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"gpt-5.6-luna","messages":[{"role":"user","content":"Reply with ok."}]}'
 ```
 
 Claude Messages request:

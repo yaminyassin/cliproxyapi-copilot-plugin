@@ -42,3 +42,13 @@ func TestCountTokensReturnsClaudeInputTokens(t *testing.T) {
 		t.Fatalf("input_tokens = %d; response=%s", got, resp.Payload)
 	}
 }
+
+func TestNormalizeRequestFormatAcceptsChatCompletions(t *testing.T) {
+	t.Parallel()
+
+	for _, format := range []string{"openai", "chat-completions", "openai-chat-completions"} {
+		if got := normalizeRequestFormat(format); got != "openai" {
+			t.Errorf("normalizeRequestFormat(%q) = %q, want openai", format, got)
+		}
+	}
+}

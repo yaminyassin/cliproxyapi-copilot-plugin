@@ -76,6 +76,9 @@ func (s *Service) StaticModels() pluginapi.ModelResponse {
 }
 
 func (s *Service) ModelsForAuth(ctx context.Context, callbackID string, req pluginapi.AuthModelRequest) (pluginapi.ModelResponse, error) {
+	if requestedProvider := strings.TrimSpace(req.AuthProvider); requestedProvider != "" && !strings.EqualFold(requestedProvider, providerID) {
+		return pluginapi.ModelResponse{}, statusError("unsupported_auth_provider", fmt.Sprintf("auth provider %q is not supported by Copilot model discovery", requestedProvider), http.StatusBadRequest)
+	}
 	storage, errParse := parseStorage(req.StorageJSON)
 	if errParse != nil {
 		return pluginapi.ModelResponse{}, errParse

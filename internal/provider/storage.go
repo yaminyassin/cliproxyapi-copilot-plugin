@@ -61,12 +61,7 @@ func authData(storage authStorage, id, fileName, prefix, proxyURL string, disabl
 	if id == "" {
 		id = fileName
 	}
-	if len(metadata) == 0 {
-		metadata = map[string]any{
-			"type":         providerID,
-			"github_login": storage.GitHubLogin,
-		}
-	}
+	metadata = authMetadata(storage, metadata)
 	if len(attributes) == 0 {
 		attributes = map[string]string{"auth_kind": "oauth"}
 	}
@@ -84,6 +79,18 @@ func authData(storage authStorage, id, fileName, prefix, proxyURL string, disabl
 		Attributes:       attributes,
 		NextRefreshAfter: nextRefresh,
 	}, nil
+}
+
+func authMetadata(storage authStorage, metadata map[string]any) map[string]any {
+	cloned := make(map[string]any, len(metadata)+3)
+	for key, value := range metadata {
+		cloned[key] = value
+	}
+	// CPA's management /api-call replaces $TOKEN$ from metadata.access_token.
+	cloned["type"] = providerID
+	cloned["github_login"] = storage.GitHubLogin
+	cloned["access_token"] = storage.GitHubAccessToken
+	return cloned
 }
 
 func nextGitHubRefresh(storage authStorage, now time.Time) time.Time {

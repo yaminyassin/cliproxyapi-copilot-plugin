@@ -1,10 +1,31 @@
 package provider
 
 import (
+	"context"
+	"errors"
 	"testing"
 
 	"github.com/arthur-sommer-etc/cliproxyapi-copilot-plugin/internal/translate"
+	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginapi"
 )
+
+func TestModelsForAuthRejectsMismatchedProvider(t *testing.T) {
+	t.Parallel()
+
+	_, err := New(nil).ModelsForAuth(context.Background(), "", pluginapi.AuthModelRequest{
+		AuthProvider: "other-provider",
+	})
+	if err == nil {
+		t.Fatal("ModelsForAuth() error = nil, want mismatched provider error")
+	}
+	var statusErr *StatusError
+	if !errors.As(err, &statusErr) {
+		t.Fatalf("ModelsForAuth() error = %T, want *StatusError", err)
+	}
+	if got, want := statusErr.Code, "unsupported_auth_provider"; got != want {
+		t.Errorf("status code = %q, want %q", got, want)
+	}
+}
 
 func TestSelectEndpoint(t *testing.T) {
 	t.Parallel()

@@ -90,8 +90,9 @@ remain implemented by this plugin.
 ## Build and test
 
 Requirements: Docker with Compose v2 and a local Go 1.26 toolchain for `make
-test`. The production plugin build runs inside `golang:1.26-bookworm`, matching
-the Debian Bookworm runtime used by the official image.
+test`. The production Linux plugin build runs inside `golang:1.26-bookworm`,
+matching the Debian Bookworm runtime used by the official image. Darwin ARM64
+release builds run natively on GitHub's macOS ARM64 runner.
 
 ```sh
 make test
@@ -106,6 +107,12 @@ build/plugins/linux/amd64/cliproxyapi-copilot.so
 
 `make build-local` exists for development, but a binary built on a newer host
 glibc may not load in the Bookworm container.
+
+On an Apple Silicon Mac, build the CPA plugin-store package with:
+
+```sh
+make package-local VERSION=0.3.5 GOOS=darwin GOARCH=arm64
+```
 
 ## Existing CLIProxyAPI deployment
 
@@ -134,11 +141,12 @@ and publishes:
 
 ```text
 cliproxyapi-copilot_0.3.1_linux_amd64.zip
+cliproxyapi-copilot_0.3.1_darwin_arm64.zip
 checksums.txt
 ```
 
-The ZIP contains only `cliproxyapi-copilot.so` at its root, matching the
-official CLIProxyAPI Plugins Store requirements.
+Each ZIP contains only the platform library at its root, matching the official
+CLIProxyAPI Plugins Store requirements.
 
 ## Isolated deployment
 

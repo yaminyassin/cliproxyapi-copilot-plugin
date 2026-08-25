@@ -163,8 +163,8 @@ func pluginRegistration() registration {
 		Metadata: pluginapi.Metadata{
 			Name:             "GitHub Copilot subscription provider",
 			Version:          provider.PluginVersion,
-			Author:           "self-owned",
-			GitHubRepository: "https://github.com/arthur-sommer-etc/cliproxyapi-copilot-plugin",
+			Author:           "Arthur Sommer and Yamin Yassin",
+			GitHubRepository: "https://github.com/yaminyassin/cliproxyapi-copilot-plugin",
 			ConfigFields: []pluginapi.ConfigField{
 				{Name: "github_client_id", Type: pluginapi.ConfigFieldTypeString, Description: "Public GitHub OAuth application client identifier used for device flow."},
 				{Name: "github_scope", Type: pluginapi.ConfigFieldTypeString, Description: "Space-delimited GitHub OAuth scopes; defaults to the least-privilege read:user scope."},

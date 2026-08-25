@@ -9,11 +9,32 @@ permissions:
   contents: write
 
 jobs:
-  release:
-    runs-on: ubuntu-latest
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            goos: linux
+            goarch: amd64
+          - runner: macos-15
+            goos: darwin
+            goarch: arm64
+    runs-on: ${{ matrix.runner }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.x"
+          cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
 
       - name: Validate release tag
         id: version
@@ -28,27 +49,47 @@ jobs:
           echo "value=$version" >> "$GITHUB_OUTPUT"
 
       - name: Run tests
-        run: |
-          docker run --rm \
-            --user "$(id -u):$(id -g)" \
-            -e HOME=/src/.cache/home \
-            -e GOCACHE=/src/.cache/go-build \
-            -e GOMODCACHE=/src/.cache/go-mod \
-            -v "$PWD:/src" \
-            -w /src \
-            golang:1.26-bookworm \
-            go test ./...
+        run: go test ./...
 
-      - name: Build marketplace package
+      - name: Build Linux package
+        if: matrix.goos == 'linux'
         run: make package VERSION=${{ steps.version.outputs.value }}
 
-      - name: Publish GitHub Release
+      - name: Build Darwin package
+        if: matrix.goos == 'darwin'
+        run: make package-local VERSION=${{ steps.version.outputs.value }} GOOS=darwin GOARCH=arm64
+
+      - name: Upload store package
+        uses: actions/upload-artifact@v4
+        with:
+          name: cliproxyapi-copilot-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/*.zip
+          if-no-files-found: error
+
+  release:
+    needs: package
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download packages
+        uses: actions/download-artifact@v4
+        with:
+          pattern: cliproxyapi-copilot-*
+          path: dist
+          merge-multiple: true
+
+      - name: Generate combined checksums
+        run: |
+          cd dist
+          sha256sum *.zip > checksums.txt
+
+      - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "$GITHUB_REF_NAME" \
-            dist/cliproxyapi-copilot_${{ steps.version.outputs.value }}_linux_amd64.zip \
+            dist/*.zip \
             dist/checksums.txt \
+            --repo "$GITHUB_REPOSITORY" \
             --verify-tag \
             --generate-notes \
             --title "$GITHUB_REF_NAME"

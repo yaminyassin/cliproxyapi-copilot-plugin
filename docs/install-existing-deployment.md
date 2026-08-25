@@ -162,10 +162,12 @@ The result should include Copilot models such as `gpt-5.6-sol` and
 
 ## Updating or removing the plugin
 
-Version tags automatically publish marketplace-compatible packages. To update
-from a release, verify the archive against `checksums.txt`, extract
-`cliproxyapi-copilot.so`, replace the installed library, and restart
-CLIProxyAPI.
+Version tags automatically publish CPA plugin-store packages for Linux AMD64
+and Darwin ARM64. The durable installation path is the custom registry at
+`https://raw.githubusercontent.com/yaminyassin/cliproxy-cursor-plugin/main/registry.json`.
+CPA verifies `checksums.txt`, records the selected source and release in config,
+and writes a versioned library under the platform-specific plugin directory.
+Restart CLIProxyAPI after installing or changing a native plugin version.
 
 To disable it without deleting credentials:
 

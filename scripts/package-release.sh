@@ -3,8 +3,8 @@ set -eu
 
 VERSION=${1:-}
 PLUGIN_ID="cliproxyapi-copilot"
-GOOS="linux"
-GOARCH="amd64"
+TARGET_GOOS=${2:-linux}
+TARGET_GOARCH=${3:-amd64}
 
 case "$VERSION" in
   "" | *[!0-9.]* | .* | *. | *..*)
@@ -22,9 +22,18 @@ esac
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 REPO_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
-PLUGIN="$REPO_DIR/build/plugins/$GOOS/$GOARCH/$PLUGIN_ID.so"
+case "$TARGET_GOOS" in
+  darwin) PLUGIN_EXT="dylib" ;;
+  linux) PLUGIN_EXT="so" ;;
+  windows) PLUGIN_EXT="dll" ;;
+  *)
+    printf 'error: unsupported release platform: %s\n' "$TARGET_GOOS" >&2
+    exit 1
+    ;;
+esac
+PLUGIN="$REPO_DIR/build/plugins/$TARGET_GOOS/$TARGET_GOARCH/$PLUGIN_ID.$PLUGIN_EXT"
 DIST_DIR="$REPO_DIR/dist"
-ARCHIVE="$PLUGIN_ID"_"$VERSION"_"$GOOS"_"$GOARCH".zip
+ARCHIVE="$PLUGIN_ID"_"$VERSION"_"$TARGET_GOOS"_"$TARGET_GOARCH".zip
 
 [ -f "$PLUGIN" ] || {
   printf 'error: plugin artifact is missing; run make build first\n' >&2
@@ -34,11 +43,6 @@ command -v python3 >/dev/null 2>&1 || {
   printf 'error: python3 is required\n' >&2
   exit 1
 }
-command -v sha256sum >/dev/null 2>&1 || {
-  printf 'error: sha256sum is required\n' >&2
-  exit 1
-}
-
 mkdir -p "$DIST_DIR"
 rm -f "$DIST_DIR/$ARCHIVE" "$DIST_DIR/checksums.txt"
 python3 - "$PLUGIN" "$DIST_DIR/$ARCHIVE" <<'PY'
@@ -53,7 +57,11 @@ with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED, compresslev
 PY
 (
   cd "$DIST_DIR"
-  sha256sum "$ARCHIVE" >checksums.txt
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$ARCHIVE" >checksums.txt
+  else
+    shasum -a 256 "$ARCHIVE" >checksums.txt
+  fi
 )
 
 printf 'Created %s and checksums.txt\n' "$DIST_DIR/$ARCHIVE"
